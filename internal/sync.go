@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"io/ioutil"
+	"os"
 
 	"github.com/awslabs/ssosync/internal/aws"
 	"github.com/awslabs/ssosync/internal/config"
@@ -746,9 +747,14 @@ func getGroupUsersOperations(gGroupsUsers map[string][]*admin.User, awsGroupsUse
 func DoSync(ctx context.Context, cfg *config.Config) error {
 	log.Info("Syncing AWS users and groups from Google Workspace SAML Application")
 
-	creds := []byte(cfg.GoogleCredentials)
+	var creds []byte
 
-	if !cfg.IsLambda {
+	if cfg.IsLambda {
+		creds = []byte(cfg.GoogleCredentials)
+	} else if _, err := os.Stat(cfg.GoogleCredentials); errors.Is(err, os.ErrNotExist) {
+		log.Debug("No credentials file found. Testing GoogleCredentials default locations")
+		creds = nil
+	} else {
 		b, err := ioutil.ReadFile(cfg.GoogleCredentials)
 		if err != nil {
 			return err
