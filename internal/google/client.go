@@ -20,8 +20,12 @@ import (
 	"strings"
 	"errors"
 
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	oauth2v2 "google.golang.org/api/oauth2/v2"
+
 	admin "google.golang.org/api/admin/directory/v1"
+	"google.golang.org/api/impersonate"
 	"google.golang.org/api/option"
 )
 
@@ -40,17 +44,50 @@ type client struct {
 
 // NewClient creates a new client for Google's Admin API
 func NewClient(ctx context.Context, adminEmail string, serviceAccountKey []byte) (Client, error) {
-	config, err := google.JWTConfigFromJSON(serviceAccountKey, admin.AdminDirectoryGroupReadonlyScope,
-		admin.AdminDirectoryGroupMemberReadonlyScope,
-		admin.AdminDirectoryUserReadonlyScope)
+	var ts oauth2.TokenSource
 
-	if err != nil {
-		return nil, err
+	if serviceAccountKey != nil {
+		config, err := google.JWTConfigFromJSON(serviceAccountKey, admin.AdminDirectoryGroupReadonlyScope,
+			admin.AdminDirectoryGroupMemberReadonlyScope,
+			admin.AdminDirectoryUserReadonlyScope)
+		if err != nil {
+			return nil, err
+		}
+		config.Subject = adminEmail
+
+		ts = config.TokenSource(ctx)
+	} else {
+		// If we are using Workload Identity lets try it getting Default Credentials
+
+		// First, let's find whoami
+		TokenSource, err := google.DefaultTokenSource(ctx, admin.AdminDirectoryGroupReadonlyScope)
+		if err != nil {
+			return nil, err
+		}
+
+		oauth2Service, err := oauth2v2.NewService(ctx, option.WithTokenSource(TokenSource))
+    	if err != nil {
+        	return nil, err
+    	}
+
+		tokenInfo, err := oauth2Service.Tokeninfo().Do()
+		if err != nil {
+			return nil, err
+		}
+		TargetPrincipal := tokenInfo.Email
+
+		// Let's impersonate admin to get the needed Token Source
+		ts, err = impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
+			TargetPrincipal: TargetPrincipal,
+			Scopes: []string{admin.AdminDirectoryGroupReadonlyScope,
+				admin.AdminDirectoryGroupMemberReadonlyScope,
+				admin.AdminDirectoryUserReadonlyScope},
+			Subject: adminEmail,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	config.Subject = adminEmail
-
-	ts := config.TokenSource(ctx)
 
 	srv, err := admin.NewService(ctx, option.WithTokenSource(ts))
 	if err != nil {
