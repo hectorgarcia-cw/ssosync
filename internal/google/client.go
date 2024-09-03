@@ -22,6 +22,8 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	oauth2v2 "google.golang.org/api/oauth2/v2"
+
 	admin "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/impersonate"
 	"google.golang.org/api/option"
@@ -56,9 +58,32 @@ func NewClient(ctx context.Context, adminEmail string, serviceAccountKey []byte)
 		ts = config.TokenSource(ctx)
 	} else {
 		// If we are using Workload Identity lets try it getting Default Credentials
-		var err error
+
+		// First, let's find whoami
+		TokenSource, ts_err := google.DefaultTokenSource(ctx, admin.AdminDirectoryGroupReadonlyScope)
+		if ts_err != nil {
+			return nil, ts_err
+		}
+
+		oauth2Service, err := oauth2v2.NewService(ctx, option.WithTokenSource(TokenSource))
+    	if err != nil {
+        	return nil, err
+    	}
+
+		tokenInfoCall := oauth2Service.Tokeninfo()
+
+		tokenInfo, err := tokenInfoCall.Do()
+
+		if err != nil {
+			// e, _ := err.(*googleapi.Error)
+			return nil, err
+		}
+		TargetPrincipal := tokenInfo.Email
+
+
+		// If we are using Workload Identity lets try it getting Default Credentials
 		ts, err = impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
-			TargetPrincipal: "aws-gcp-ssosync@coverwallet-sre.iam.gserviceaccount.com",
+			TargetPrincipal: TargetPrincipal,
 			Scopes: []string{admin.AdminDirectoryGroupReadonlyScope,
 				admin.AdminDirectoryGroupMemberReadonlyScope,
 				admin.AdminDirectoryUserReadonlyScope},
