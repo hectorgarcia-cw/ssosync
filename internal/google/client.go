@@ -60,9 +60,9 @@ func NewClient(ctx context.Context, adminEmail string, serviceAccountKey []byte)
 		// If we are using Workload Identity lets try it getting Default Credentials
 
 		// First, let's find whoami
-		TokenSource, ts_err := google.DefaultTokenSource(ctx, admin.AdminDirectoryGroupReadonlyScope)
-		if ts_err != nil {
-			return nil, ts_err
+		TokenSource, err := google.DefaultTokenSource(ctx, admin.AdminDirectoryGroupReadonlyScope)
+		if err != nil {
+			return nil, err
 		}
 
 		oauth2Service, err := oauth2v2.NewService(ctx, option.WithTokenSource(TokenSource))
@@ -70,18 +70,13 @@ func NewClient(ctx context.Context, adminEmail string, serviceAccountKey []byte)
         	return nil, err
     	}
 
-		tokenInfoCall := oauth2Service.Tokeninfo()
-
-		tokenInfo, err := tokenInfoCall.Do()
-
+		tokenInfo, err := oauth2Service.Tokeninfo().Do()
 		if err != nil {
-			// e, _ := err.(*googleapi.Error)
 			return nil, err
 		}
 		TargetPrincipal := tokenInfo.Email
 
-
-		// If we are using Workload Identity lets try it getting Default Credentials
+		// Let's impersonate admin to get the needed Token Source
 		ts, err = impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
 			TargetPrincipal: TargetPrincipal,
 			Scopes: []string{admin.AdminDirectoryGroupReadonlyScope,
